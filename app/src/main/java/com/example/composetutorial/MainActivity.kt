@@ -34,7 +34,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 
 
 class MainActivity : ComponentActivity() {
@@ -45,9 +61,72 @@ class MainActivity : ComponentActivity() {
                 .isAppearanceLightStatusBars = true
             ComposeTutorialTheme {
                 Surface(modifier = Modifier.systemBarsPadding()) {
-                    Conversation(SampleData.conversationSample)
+                    MainScreen()
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainScreen() {
+    val navController = rememberNavController()
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "Compose Tutorial",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                },
+                actions = {
+                    SettingsButton(navController = navController)
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            )
+        }
+    ) { innerPadding ->
+        NavHost(
+            navController = navController,
+            startDestination = "home",
+            modifier = Modifier.padding(innerPadding)
+        ) {
+            composable("home") {
+                Conversation(messages = SampleData.conversationSample)
+            }
+            composable("settings") {
+                SettingsScreen()
+            }
+        }
+    }
+}
+
+@Composable
+fun SettingsScreen() {
+    Surface(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "Settings",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            // Add your settings options here
+            Text(text = "Option 1")
+            Text(text = "Option 2")
         }
     }
 }
@@ -73,6 +152,7 @@ fun MessageCard(msg: Message) {
         // surfaceColor will be updated gradually from one color to the other
         val surfaceColor by animateColorAsState(
             if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+            label = "chat color change when click",
         )
 
         // We toggle the isExpanded variable when we click on this Column
@@ -112,6 +192,27 @@ fun Conversation(messages: List<Message>) {
         items(messages) { message ->
             MessageCard(message)
         }
+    }
+}
+
+@Composable
+fun SettingsButton(navController: NavHostController) {
+    IconButton(onClick = {
+        val currentRoute = navController.currentDestination?.route
+        if (currentRoute == "settings") {
+            // Navigate back to home
+            navController.navigate("home") {
+                popUpTo("home") { inclusive = true }
+            }
+        } else {
+            // Navigate to settings
+            navController.navigate("settings")
+        }
+    }) {
+        Icon(
+            imageVector = Icons.Default.Settings,
+            contentDescription = "Settings"
+        )
     }
 }
 
