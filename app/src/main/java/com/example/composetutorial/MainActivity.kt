@@ -40,9 +40,11 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
@@ -51,17 +53,19 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.composetutorial.Data.UserPreferences
 
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val userPreferences = UserPreferences(applicationContext)
         setContent {
             WindowCompat.getInsetsController(window, window.decorView)
                 .isAppearanceLightStatusBars = true
             ComposeTutorialTheme {
                 Surface(modifier = Modifier.systemBarsPadding()) {
-                    MainScreen()
+                    MainScreen(userPreferences = userPreferences)
                 }
             }
         }
@@ -70,8 +74,9 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen() {
+fun MainScreen(userPreferences: UserPreferences) {
     val navController = rememberNavController()
+    var userName by remember { mutableStateOf(userPreferences.getUsername()) }
 
     Scaffold(
         topBar = {
@@ -102,17 +107,30 @@ fun MainScreen() {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable("home") {
-                Conversation(messages = SampleData.conversationSample)
+                val updatedMessages = SampleData.conversationSample.map { message ->
+                    if (message.author == "Lexi") message.copy(author = userName)
+                    else message
+                }
+                Conversation(messages = updatedMessages)
             }
             composable("settings") {
-                SettingsScreen()
+                SettingsScreen(
+                    userName = userName,
+                    onUserNameChange = { newName ->
+                        userName = newName
+                        userPreferences.setUsername(newName)
+                    }
+                )
             }
         }
     }
 }
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(
+    userName: String,
+    onUserNameChange: (String) -> Unit
+) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -125,8 +143,11 @@ fun SettingsScreen() {
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             // Add your settings options here
-            Text(text = "Option 1")
-            Text(text = "Option 2")
+            Text(text = "pfp")
+            UserNameTextField(
+                userName = userName,
+                onUserNameChange = onUserNameChange
+            )
         }
     }
 }
@@ -216,11 +237,20 @@ fun SettingsButton(navController: NavHostController) {
     }
 }
 
+@Composable
+fun UserNameTextField(userName: String, onUserNameChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = userName,
+        onValueChange = onUserNameChange,
+        label = { Text(stringResource(R.string.userName)) }
+    )
+}
+
 @Preview
 @Composable
 fun PreviewConversation() {
     ComposeTutorialTheme {
-        Conversation(SampleData.conversationSample)
+        Conversation(SampleData.conversationSample.map { it.copy(author = "Lexi") })
     }
 }
 
