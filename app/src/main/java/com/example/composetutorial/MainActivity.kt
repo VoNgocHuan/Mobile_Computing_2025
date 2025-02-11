@@ -2,10 +2,12 @@ package com.example.composetutorial
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Row
@@ -24,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import com.example.composetutorial.ui.theme.ComposeTutorialTheme
 import androidx.compose.foundation.border
 import androidx.compose.material3.MaterialTheme
-import android.content.res.Configuration
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.clickable
@@ -34,8 +35,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -44,6 +48,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -53,7 +62,11 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import coil3.compose.rememberAsyncImagePainter
 import com.example.composetutorial.Data.UserPreferences
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.io.File
 
 
 class MainActivity : ComponentActivity() {
@@ -76,7 +89,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(userPreferences: UserPreferences) {
     val navController = rememberNavController()
-    var userName by remember { mutableStateOf(userPreferences.getUsername()) }
+    val userName by userPreferences.usernameFlow.collectAsState(initial = "Lexi")
+    val profileImageUri by userPreferences.profileImageUriFlow.collectAsState(initial = "")
 
     Scaffold(
         topBar = {
@@ -108,17 +122,24 @@ fun MainScreen(userPreferences: UserPreferences) {
         ) {
             composable("home") {
                 val updatedMessages = SampleData.conversationSample.map { message ->
-                    if (message.author == "Lexi") message.copy(author = userName)
-                    else message
+                    if (message.author == "Lexi") message.copy(author = userName) else message
                 }
-                Conversation(messages = updatedMessages)
+                Conversation(
+                    messages = updatedMessages,
+                    profileImageUri = profileImageUri,
+                    userName = userName
+                )
             }
             composable("settings") {
+                val scope = rememberCoroutineScope()
                 SettingsScreen(
                     userName = userName,
                     onUserNameChange = { newName ->
-                        userName = newName
-                        userPreferences.setUsername(newName)
+                        scope.launch { userPreferences.setUsername(newName) }
+                    },
+                    profileImageUri = profileImageUri,
+                    onProfileImageChange = { newUri ->
+                        scope.launch { userPreferences.setProfileImageUri(newUri) }
                     }
                 )
             }
@@ -129,8 +150,34 @@ fun MainScreen(userPreferences: UserPreferences) {
 @Composable
 fun SettingsScreen(
     userName: String,
-    onUserNameChange: (String) -> Unit
+    onUserNameChange: (String) -> Unit,
+    profileImageUri: String,
+    onProfileImageChange: (String) -> Unit
 ) {
+    var currentName by remember { mutableStateOf(userName) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri?.let {
+            scope.launch(Dispatchers.IO) {
+                val inputStream = context.contentResolver.openInputStream(it)
+                val outputFile = File(context.filesDir, "profile_picture.jpg")
+                inputStream?.use { input ->
+                    outputFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                onProfileImageChange(outputFile.absolutePath)
+            }
+        }
+    }
+
+    LaunchedEffect(userName) {
+        currentName = userName
+    }
+
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
@@ -142,11 +189,39 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
-            // Add your settings options here
-            Text(text = "pfp")
+            Box(
+                modifier = Modifier
+                    .size(100.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable {
+                        photoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }
+            ) {
+                if (profileImageUri.isNotEmpty()) {
+                    Image(
+                        painter = rememberAsyncImagePainter(File(profileImageUri)),
+                        contentDescription = "Profile picture",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.AccountCircle,
+                        contentDescription = "Add profile picture",
+                        modifier = Modifier.size(100.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
             UserNameTextField(
-                userName = userName,
-                onUserNameChange = onUserNameChange
+                userName = currentName,
+                onUserNameChange = { newName ->
+                    currentName = newName
+                    onUserNameChange(newName)
+                }
             )
         }
     }
@@ -155,10 +230,16 @@ fun SettingsScreen(
 data class Message(val author: String, val body: String)
 
 @Composable
-fun MessageCard(msg: Message) {
+fun MessageCard(msg: Message, profileImageUri: String, userName: String) {
     Row(modifier = Modifier.padding(all = 8.dp)) {
+        val imagePainter = if (msg.author == userName && profileImageUri.isNotEmpty()) {
+            rememberAsyncImagePainter(File(profileImageUri))
+        } else {
+            painterResource(R.drawable.banana_sword)
+        }
+
         Image(
-            painter = painterResource(R.drawable.banana_sword),
+            painter = imagePainter,
             contentDescription = null,
             modifier = Modifier
                 .size(40.dp)
@@ -208,10 +289,14 @@ fun MessageCard(msg: Message) {
 }
 
 @Composable
-fun Conversation(messages: List<Message>) {
+fun Conversation(messages: List<Message>, profileImageUri: String, userName: String) {
     LazyColumn {
         items(messages) { message ->
-            MessageCard(message)
+            MessageCard(
+                msg = message,
+                profileImageUri = profileImageUri,
+                userName = userName
+            )
         }
     }
 }
@@ -245,30 +330,4 @@ fun UserNameTextField(userName: String, onUserNameChange: (String) -> Unit) {
         label = { Text(stringResource(R.string.userName)) }
     )
 }
-
-@Preview
-@Composable
-fun PreviewConversation() {
-    ComposeTutorialTheme {
-        Conversation(SampleData.conversationSample.map { it.copy(author = "Lexi") })
-    }
-}
-
-@Preview(name = "Light Mode")
-@Preview(
-    uiMode = Configuration.UI_MODE_NIGHT_YES,
-    showBackground = true,
-    name = "Dark Mode"
-)
-@Composable
-fun PreviewMessageCard() {
-    ComposeTutorialTheme {
-        Surface {
-            MessageCard(
-                msg = Message("Lexi", "Hey, take a look at Jetpack Compose, it's great!")
-            )
-        }
-    }
-}
-
 
