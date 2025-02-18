@@ -67,11 +67,47 @@ import com.example.composetutorial.Data.UserPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.Build
+import androidx.activity.viewModels
+import androidx.core.app.NotificationCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
 
 
 class MainActivity : ComponentActivity() {
+    private lateinit var sensorManager: SensorManager
+    private var temperatureSensor: Sensor? = null
+    private val temperatureViewModel: TemperatureViewModel by viewModels()
+    private var temperatureThreshold = 30f
+    private var notificationSent = false
+
+    private val temperatureListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val temperature = event.values[0]
+            temperatureViewModel.updateTemperature(temperature)
+            checkTemperatureThreshold(temperature)
+        }
+        override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {}
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        createNotificationChannel()
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        temperatureSensor = sensorManager.getDefaultSensor(Sensor.TYPE_AMBIENT_TEMPERATURE)
+        if (temperatureSensor == null) {
+            simulateTemperature()
+        }
         val userPreferences = UserPreferences(applicationContext)
         setContent {
             WindowCompat.getInsetsController(window, window.decorView)
@@ -83,11 +119,85 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        temperatureSensor?.let {
+            sensorManager.registerListener(temperatureListener, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        sensorManager.unregisterListener(temperatureListener)
+    }
+
+    private fun checkTemperatureThreshold(currentTemp: Float) {
+        if (currentTemp >= temperatureThreshold && !notificationSent) {
+            showTemperatureAlertNotification()
+            notificationSent = true
+        } else if (currentTemp < temperatureThreshold) {
+            notificationSent = false
+        }
+    }
+
+    private fun simulateTemperature() {
+        lifecycleScope.launch {
+            var currentTemp = 20f
+            while (true) {
+                delay(5000)
+                currentTemp += (Math.random() * 4 - 2).toFloat()
+                temperatureViewModel.updateTemperature(currentTemp)
+                checkTemperatureThreshold(currentTemp)
+            }
+        }
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "temperature_channel",
+                "Temperature Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Alerts when temperature reaches a certain level"
+            }
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun showTemperatureAlertNotification() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val notification = NotificationCompat.Builder(this, "temperature_channel")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Temperature Alert")
+            .setContentText("Temperature has reached the threshold!")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(1, notification)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(userPreferences: UserPreferences) {
+fun MainScreen(
+    userPreferences: UserPreferences,
+    temperatureViewModel: TemperatureViewModel = viewModel()
+) {
     val navController = rememberNavController()
     val userName by userPreferences.usernameFlow.collectAsState(initial = "Lexi")
     val profileImageUri by userPreferences.profileImageUriFlow.collectAsState(initial = "")
@@ -124,11 +234,19 @@ fun MainScreen(userPreferences: UserPreferences) {
                 val updatedMessages = SampleData.conversationSample.map { message ->
                     if (message.author == "Lexi") message.copy(author = userName) else message
                 }
-                Conversation(
-                    messages = updatedMessages,
-                    profileImageUri = profileImageUri,
-                    userName = userName
-                )
+                val currentTemp by temperatureViewModel.currentTemperature.collectAsState()
+                Column {
+                    Text(
+                        text = "Current Temperature: ${"%.1f".format(currentTemp)}°C",
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Conversation(
+                        messages = updatedMessages,
+                        profileImageUri = profileImageUri,
+                        userName = userName
+                    )
+                }
             }
             composable("settings") {
                 val scope = rememberCoroutineScope()
@@ -330,4 +448,5 @@ fun UserNameTextField(userName: String, onUserNameChange: (String) -> Unit) {
         label = { Text(stringResource(R.string.userName)) }
     )
 }
+
 
